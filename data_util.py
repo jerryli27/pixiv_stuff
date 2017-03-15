@@ -8,9 +8,12 @@ import tensorflow as tf
 import glob
 import random
 import math
+import time
 import collections
 import urllib
 import re
+import sys
+import traceback
 import dateparser
 import numpy as np
 from sklearn.decomposition import PCA, TruncatedSVD
@@ -18,6 +21,7 @@ import scipy.sparse
 from collections import Counter
 
 from general_util import *
+from neural_util import decode_image
 
 Examples = collections.namedtuple("Examples", "paths, images, labels, index2tag, count, steps_per_epoch")
 PixivInfo = collections.namedtuple("PixivInfo",
@@ -93,7 +97,12 @@ def parse_pixiv_info(image_path):
     # newline as well, I have to use regex expression as a last resort, which maybe slow.
     # First get the correct path to the txt file, because one txt file can correspond to multiple pages(images).
     image_filename = os.path.basename(image_path)
-    image_id, image_pagenum, image_name, image_ext = parse_image_name_info(image_filename)
+    image_name_info = parse_image_name_info(image_filename)
+    if image_name_info is None:
+        # This happens only when the image name contains a "/" so a new folder was created for that image.
+        # It is rare, but it happens. I will ignore it for now since it happens in less than 1/10000.
+        raise AssertionError("Failed to parse image file name: %s." %(image_filename))
+    image_id, image_pagenum, image_name, image_ext = image_name_info
     txt_path = image_path + '.txt'
 
     if not os.path.isfile(txt_path):
@@ -164,13 +173,18 @@ def parse_pixiv_info(image_path):
 
 
 def parse_comments(line):
+    ret = []
+    if len(line.strip()) == 0:
+        return ret
     # Use regex negative lookbehind
     comments = re.split(comment_split_re, line)
-    ret = []
     for comment in comments:
         comment_info = single_comment_re.match(comment)
-        comment_user_id = comment_info.group(1)
-        comment_content = comment_info.group(2)
+        if comment_info is None:
+            raise AssertionError("Comment %s in comments line %s does not seem to follow the convention." %(comment, line))
+        else:
+            comment_user_id = comment_info.group(1)
+            comment_content = comment_info.group(2)
         ret.append(Comment(user_id=int(comment_user_id), comment=comment_content))
     return ret
 
@@ -180,12 +194,19 @@ def create_database(input_dir):
         raise Exception("input_dir does not exist")
 
     input_paths = get_all_image_paths_in_dir(input_dir)
+    num_images = len(input_paths)
+    print("Number of images: %s. Start creating database." %(num_images))
 
-    if len(input_paths) == 0:
+    if num_images == 0:
         raise Exception("input_dir contains no image files")
 
+    start_time = time.time()
     database = {}
-    for input_path in input_paths:
+    for path_i, input_path in enumerate(input_paths):
+        if path_i % 100 == 0:
+            current_time = time.time()
+            remaining_time = 0.0 if path_i == 0 else (num_images - path_i) * (float(current_time - start_time) / path_i)
+            print('%.3f%% done. Remaining time: %.1fs' % (float(path_i) / num_images * 100, remaining_time))
         try:
             pixiv_info = parse_pixiv_info(input_path)
             if isinstance(pixiv_info, PixivInfo):
@@ -195,6 +216,8 @@ def create_database(input_dir):
                 else:
                     database[image_id] = pixiv_info
         except Exception as exc:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_exception(exc_type, exc_value, exc_traceback)
             print("Exception %s occured during database construction for image %s" %(str(exc), input_path))
     return database
 
@@ -208,9 +231,15 @@ def get_tags_count(database, most_common_count = None):
     else:
         assert isinstance(most_common_count, int)
         most_common = dict(tags_count.most_common(most_common_count))
+        assert len(most_common) == most_common_count
         return most_common
 
 def create_labels(database, image_paths, most_common_count=10000):
+    num_images = len(image_paths)
+    print("Number of images: %s. Start creating labels." %(num_images))
+
+    if num_images == 0:
+        raise Exception("input_dir contains no image files")
     # First count the number of times each tag appears in the database. Then take out the ones with occurrence below
     # some threshold.
     tags_count = get_tags_count(database, most_common_count=most_common_count)
@@ -218,16 +247,31 @@ def create_labels(database, image_paths, most_common_count=10000):
     index2tag= {i: label for i,label in enumerate(sorted(tags_count.keys()))}
     image_labels = np.zeros((len(image_paths), most_common_count), dtype=np.bool)
 
+    start_time = time.time()
     for image_i, image_path in enumerate(image_paths):
-        image_file_name = os.path.basename(image_path)
-        image_id, image_pagenum, image_name, image_ext = parse_image_name_info(image_file_name)
-        if image_id in database:
-            image_tags = database[image_id].tags
-            for tag in image_tags:
-                if tag in tags_count:
-                    image_labels[image_i, tag2index[tag]] = True
-        else:
-            raise AttributeError("image %s not in database." %(image_path))
+        if image_i % 10000 == 0:
+            current_time = time.time()
+            remaining_time = 0.0 if image_i == 0 else (num_images - image_i) * (float(current_time - start_time) / image_i)
+            print('%.3f%% done. Remaining time: %.1fs' % (float(image_i) / num_images * 100, remaining_time))
+        try:
+            image_file_name = os.path.basename(image_path)
+            image_name_info = parse_image_name_info(image_file_name)
+            if image_name_info is None:
+                # This happens only when the image name contains a "/" so a new folder was created for that image.
+                # It is rare, but it happens. I will ignore it for now since it happens in less than 1/10000.
+                raise AssertionError("Failed to parse image file name: %s." %(image_file_name))
+            image_id, image_pagenum, image_name, image_ext = image_name_info
+            if image_id in database:
+                image_tags = database[image_id].tags
+                for tag in image_tags:
+                    if tag in tags_count:
+                        image_labels[image_i, tag2index[tag]] = True
+            else:
+                raise AttributeError("image %s not in database." %(image_path))
+        except Exception as exc:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_exception(exc_type, exc_value, exc_traceback)
+            print("Exception %s occured during label construction for image %s" %(str(exc), image_path))
     return image_labels, tag2index, index2tag
 
 # TODO: finish the test case for create_labels
@@ -235,19 +279,21 @@ def create_labels(database, image_paths, most_common_count=10000):
 def load_examples(config):
     if not os.path.exists(config.input_dir):
         raise Exception("input_dir does not exist")
-    if not os.path.isfile(os.path.join(config.output_dir, 'db.pkl')):
+    if not os.path.isfile(config.db_dir):
         print("Database does not exist, creating new one.")
         database = create_database(config.input_dir)
-        save_pickle(database, os.path.join(config.output_dir, 'db.pkl'))
+        save_pickle(database, config.db_dir)
     else:
-        database = load_pickle(os.path.join(config.output_dir, 'db.pkl'))
+        database = load_pickle(config.db_dir)
 
 
-    input_paths = get_files_with_ext(config.input_dir, "jpg")  # glob.glob(os.path.join(config.input_dir, "*.jpg"))
-    decode = tf.image.decode_jpeg
-    if len(input_paths) == 0:
-        input_paths = get_files_with_ext(config.input_dir, "png")  # glob.glob(os.path.join(config.input_dir, "*.png"))
-        decode = tf.image.decode_png
+    # input_paths = get_files_with_ext(config.input_dir, "jpg")  # glob.glob(os.path.join(config.input_dir, "*.jpg"))
+    # decode = tf.image.decode_jpeg
+    # if len(input_paths) == 0:
+    #     input_paths = get_files_with_ext(config.input_dir, "png")  # glob.glob(os.path.join(config.input_dir, "*.png"))
+    #     decode = tf.image.decode_png
+    input_paths = get_all_image_paths_in_dir(config.input_dir)
+    decode = decode_image
 
     if len(input_paths) == 0:
         raise Exception("input_dir contains no image files")
@@ -442,17 +488,21 @@ def cluster_images(input_dir, db_dir, output_dir, tag_max_count, num_clusters):
 
     # Print the component features
     NUM_INFLUENCIAL_TAGS_TO_PRINT = min(5, tag_max_count)
-    for i in range(num_clusters):
-        cluster_components = []
-        # for j in range(tag_max_count):
-        #     cluster_components.append("%s: %.4f" %(index2tag[j], components_features[i,j]))
-        # print("Cluster %d is made up of the following tag components: \n\t%s" %(i, ', '.join(cluster_components)))
-        # Or I can print say the first 5 tags that most influence the cluster... Maybe this is better.
-        sorted_features = np.argsort(components_features[i])
-        for j in range(-1, -NUM_INFLUENCIAL_TAGS_TO_PRINT-1 ,-1):
-            cluster_components.append("%s: %.4f" % (index2tag[sorted_features[j]], components_features[i, sorted_features[j]]))
 
-        print("Cluster %d is most influenced by the following tags: \n\t%s" %(i, ', '.join(cluster_components)))
+    cluster_summary_file_name = os.path.join(output_dir, "cluster_summary.txt")
+    with open(cluster_summary_file_name, 'w') as f:
+        for i in range(num_clusters):
+            cluster_components = []
+            # for j in range(tag_max_count):
+            #     cluster_components.append("%s: %.4f" %(index2tag[j], components_features[i,j]))
+            # print("Cluster %d is made up of the following tag components: \n\t%s" %(i, ', '.join(cluster_components)))
+            # Or I can print say the first 5 tags that most influence the cluster... Maybe this is better.
+            sorted_features = np.argsort(components_features[i])
+            for j in range(-1, -NUM_INFLUENCIAL_TAGS_TO_PRINT-1 ,-1):
+                cluster_components.append("%s: %.4f" % (index2tag[sorted_features[j]], components_features[i, sorted_features[j]]))
+
+            print("Cluster %d is most influenced by the following tags: \n\t%s" %(i, ', '.join(cluster_components)))
+            f.write("Cluster %d is most influenced by the following tags: \n\t%s\n" %(i, ', '.join(cluster_components)))
 
     # Output a series of files, each containing paths to images within the same cluster.
     for i in range(num_clusters):
@@ -464,4 +514,17 @@ def cluster_images(input_dir, db_dir, output_dir, tag_max_count, num_clusters):
                     f.write(input_paths[image_i] + "\n")
                     current_cluster_num_images += 1
         print("Image cluster %d has %d images." %(i, current_cluster_num_images))
+
+        with open(cluster_summary_file_name, 'a') as f:
+            f.write("Image cluster %d has %d images.\n" %(i, current_cluster_num_images))
+
+def print_common_labels(db_dir, tag_max_count):
+    if not os.path.isfile(db_dir):
+        raise AssertionError("Database does not exist.")
+    database = load_pickle(db_dir)
+    most_common_tags_count = get_tags_count(database, tag_max_count)
+    sorted_tags_count = sorted(most_common_tags_count.iteritems(), key=lambda tag_item: tag_item[1], reverse=True)
+    for tag_name, tag_count in sorted_tags_count:
+        print(tag_name + " appeared " + str(tag_count) + " times.")
+
 

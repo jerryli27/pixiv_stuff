@@ -24,6 +24,7 @@ import urllib
 
 import data_util
 import vgg19
+import discrim_net
 from general_util import *
 
 def main(a):
@@ -63,7 +64,12 @@ def main(a):
     print("examples count = %d" % examples.count)
 
     #########
-    model = vgg19.create_model(examples.images, examples.labels, a)
+    if a.model == "vgg19":
+        model = vgg19.create_model(examples.images, examples.labels, a)
+    elif a.model == "discrim_net":
+        model = discrim_net.create_model(examples.images, examples.labels, a)
+    else:
+        raise AssertionError("Not supported model %s" %(a.model))
 
 
     # reverse any processing on images so they can be written to disk or displayed to user
@@ -199,10 +205,13 @@ if __name__ == '__main__':
     parser.add_argument("--input_dir", required=True, help="path to folder containing images")
     parser.add_argument("--mode", required=True, choices=["train", "test", "save"])
     parser.add_argument("--output_dir", required=True, help="where to put output files")
+    parser.add_argument("--db_dir", default = "pixiv_1T_db.pkl",
+                        help="path to an already existing database or to store the new database.")
+    parser.add_argument("--model", required=True, choices=["vgg19", "discrim_net", ])
     parser.add_argument("--vgg19_npy_path",  help="where to find pretrained the vgg19 file.")  #default='vgg19.npy',
 
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--num_tags", type=int, default=100)
+    parser.add_argument("--num_tags", type=int, default=1000)
     parser.add_argument("--checkpoint", default=None,
                         help="directory with checkpoint to resume training from or use for testing")
 

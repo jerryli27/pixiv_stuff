@@ -173,3 +173,10 @@ class TestDataUtilMethods(unittest.TestCase):
         tag_max_count=50
         num_clusters=8
         cluster_images(input_dir,db_dir,output_dir,tag_max_count, num_clusters)
+
+    def test_get_image_paths_subdir(self):
+        input_dir = 'pixiv_downloaded/'
+        image_paths = ["pixiv_downloaded/1.jpg", "pixiv_downloaded/2.png"]
+        actual_output = get_image_paths_subdir(image_paths, input_dir)
+        expected_output = ["1.jpg", "2.png"]
+        self.assertEqual(actual_output, expected_output)

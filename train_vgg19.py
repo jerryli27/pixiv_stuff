@@ -116,7 +116,7 @@ def main(a):
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
     tf_config = tf.ConfigProto()
-    tf_config.gpu_options.per_process_gpu_memory_fraction = 0.45
+    tf_config.gpu_options.per_process_gpu_memory_fraction = a.gpu_percentage
     with sv.managed_session(config=tf_config) as sess:
         print("parameter_count =", sess.run(parameter_count))
 
@@ -179,7 +179,7 @@ def main(a):
 
                 if should(a.display_freq):
                     print("saving display images")
-                    filesets =  data_util.save_results(results["display"], image_dir, examples.unique_labels, step=results["global_step"])
+                    filesets =  data_util.save_results(results["display"], image_dir, examples.index2tag, step=results["global_step"])
                     data_util.append_index(filesets, a, step=True)
 
                 if should(a.trace_freq):
@@ -229,8 +229,8 @@ if __name__ == '__main__':
     parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
     parser.add_argument("--gray_input", action="store_true", help="Treat input image as grayscale image.")
     parser.add_argument("--batch_size", type=int, default=1, help="number of images in batch")
-    parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
-    parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
+    parser.add_argument("--ngf", type=int, default=32, help="number of generator filters in first conv layer")
+    parser.add_argument("--ndf", type=int, default=32, help="number of discriminator filters in first conv layer")
     parser.add_argument("--scale_size", type=int, default=286,
                         help="scale images to this size before cropping to 256x256")
     parser.add_argument("--crop_size", type=int, default=256, help="size to crop image into.")
@@ -243,12 +243,16 @@ if __name__ == '__main__':
     parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
     parser.add_argument("--trainable_layer", default="conv1_1",
                         choices=["conv1_1", "conv2_1", "conv3_1", "conv4_1", "conv5_1", "fc6"])
+    parser.add_argument("--gpu_percentage", type=float, default=0.45, help="precent of gpu memory allocated.")
     a = parser.parse_args()
     main(a)
 
 """
-python train_vgg19.py --mode train --output_dir sanity_check_train --max_epochs 200 --input_dir /home/xor/datasets/UECFOOD100 --display_freq=5000
+python train_vgg19.py --mode train --output_dir sanity_check_train --model=discrim_net --max_epochs 200 --input_dir /home/xor/datasets/UECFOOD100 --display_freq=5000
 python train_vgg19.py --mode train --output_dir sanity_check_train --max_epochs 20 --input_dir /mnt/tf_drive/home/ubuntu/datasets/UECFOOD256_sanity_check/ --display_freq=5000
 python train_vgg19.py --mode test --output_dir sanity_check_test --input_dir /mnt/tf_drive/home/ubuntu/datasets/UECFOOD256_sanity_check/ --checkpoint sanity_check_train
 python train_vgg19.py --mode train --output_dir UECFOOD256_train_iter_cont --max_epochs 50 --input_dir /mnt/tf_drive/home/ubuntu/datasets/UECFOOD256/ --display_freq=5000 --checkpoint=UECFOOD256_train_iter --trainable_layer=conv1_1
+python train_vgg19.py --mode train --output_dir sanity_check_train --model=discrim_net --max_epochs 20000 --input_dir /mnt/data_drive/home/ubuntu/pixiv_new_sanity_check_128 --display_freq=5000 --batch_size=50 --crop_size=128 --scale_size=143 --lr=0.000001
+python train_vgg19.py --mode train --output_dir pixiv_downloaded_sketches_lnet_128_train --model=discrim_net --max_epochs 40 --input_dir /mnt/data_drive/home/ubuntu/pixiv_downloaded_sketches_lnet_128/color --display_freq=5000 --batch_size=50 --crop_size=128 --scale_size=143 --lr=0.000001 --gpu_percentage=0.25
+
 """

@@ -234,6 +234,31 @@ def get_tags_count(database, most_common_count = None):
         assert len(most_common) == most_common_count
         return most_common
 
+def get_image_paths_in_database(database, image_paths):
+    ret = []
+    for image_i, image_path in enumerate(image_paths):
+        try:
+            image_file_name = os.path.basename(image_path)
+            image_name_info = parse_image_name_info(image_file_name)
+            if image_name_info is None:
+                # This happens only when the image name contains a "/" so a new folder was created for that image.
+                # It is rare, but it happens. I will ignore it for now since it happens in less than 1/10000.
+                raise AssertionError("Failed to parse image file name: %s." %(image_file_name))
+            image_id, image_pagenum, image_name, image_ext = image_name_info
+            if image_id in database:
+                ret.append(image_path)
+
+        except Exception as exc:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_exception(exc_type, exc_value, exc_traceback)
+            print("Exception %s occured during label construction for image %s" % (str(exc), image_path))
+    return ret
+
+def get_image_paths_subdir(image_paths, parent_dir):
+    # This function takes out the common prefix parent directory
+    len_parent_dir = len(parent_dir)
+    return map(lambda path: path[len_parent_dir:], image_paths)
+
 def create_labels(database, image_paths, most_common_count=10000):
     num_images = len(image_paths)
     print("Number of images: %s. Start creating labels." %(num_images))
@@ -293,6 +318,10 @@ def load_examples(config):
     #     input_paths = get_files_with_ext(config.input_dir, "png")  # glob.glob(os.path.join(config.input_dir, "*.png"))
     #     decode = tf.image.decode_png
     input_paths = get_all_image_paths_in_dir(config.input_dir)
+    input_paths = get_image_paths_in_database(database,input_paths)
+    # By taking out the common prefix parent directory, it saves some memory when the input_paths is huge.
+    input_paths = get_image_paths_subdir(input_paths, config.input_dir)
+
     decode = decode_image
 
     if len(input_paths) == 0:
@@ -315,7 +344,7 @@ def load_examples(config):
         # labels = tf.constant(np.array(labels, dtype=np.bool))
         labels = tf.constant(labels)
         input_queue = tf.train.slice_input_producer([input_paths, labels], shuffle=config.mode == "train")
-        path_queue = input_queue[0]
+        path_queue = tf.string_join([config.input_dir, input_queue[0]])
         label_queue = tf.to_float(input_queue[1])
 
         # reader = tf.WholeFileReader()
@@ -482,6 +511,7 @@ def cluster_images(input_dir, db_dir, output_dir, tag_max_count, num_clusters):
         database = load_pickle(db_dir)
 
     input_paths = get_all_image_paths_in_dir(input_dir)
+    input_paths = get_image_paths_in_database(database,input_paths)
     image_labels , tag2index, index2tag = create_labels(database, input_paths , most_common_count=tag_max_count)
     image_clusters, components_features = calc_sparse_pca(image_labels, n_components = num_clusters)
     assert image_clusters.shape[0] == len(input_paths)

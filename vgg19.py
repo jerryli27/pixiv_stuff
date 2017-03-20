@@ -8,7 +8,7 @@ import collections
 
 VGG_MEAN_BGR = [103.939, 116.779, 123.68]
 VGG_MEAN_RGB = [123.68, 116.779, 103.939]
-Model = collections.namedtuple("Model", "loss, outputs, train, accuracy")
+Model = collections.namedtuple("Model", "loss, outputs, train, accuracy, precision, recall")
 
 class Vgg19:
     """
@@ -278,6 +278,14 @@ def create_model(inputs, targets, config):
         correct_pred = tf.equal(predictions, targets_bool)
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
+        num_positive = tf.reduce_sum(tf.cast(targets_bool, tf.float32))
+        true_positive = tf.reduce_sum(tf.cast(tf.logical_and(targets_bool, correct_pred), tf.float32))
+        # true_negative = tf.reduce_sum(tf.cast(tf.logical_and(tf.logical_not(targets_bool), correct_pred), tf.float32))
+        false_positive =tf.reduce_sum(tf.cast(tf.logical_and(tf.logical_not(targets_bool), tf.logical_not(correct_pred)), tf.float32))
+        false_negative = num_positive - true_positive
+        precision = true_positive / (true_positive + false_positive + 0.0000001)
+        recall = true_positive / (true_positive + false_negative + 0.0000001)
+
     with tf.name_scope("train"):
         classifier_tvars = [var for var in tf.trainable_variables() if var.name.startswith("classifier")]
         # classifier_optim = tf.train.AdamOptimizer(config.lr, config.beta1)
@@ -290,7 +298,7 @@ def create_model(inputs, targets, config):
 
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
-    update_losses = ema.apply([loss,accuracy,])
+    update_losses = ema.apply([loss,accuracy,precision, recall])
     # update_losses = ema.apply([loss,])
 
     global_step = tf.contrib.framework.get_or_create_global_step()
@@ -300,7 +308,9 @@ def create_model(inputs, targets, config):
         loss=ema.average(loss),
         outputs=predict,
         train=tf.group(update_losses, incr_global_step, classifier_train),
-        accuracy= ema.average(accuracy) # If this does not work, take out the ema.
+        accuracy= ema.average(accuracy), # If this does not work, take out the ema.
+        precision= ema.average(precision),
+        recall= ema.average(recall),
     )
 
 def preprocess(image, mean_pixel =VGG_MEAN_RGB):

@@ -166,6 +166,28 @@ class TestDataUtilMethods(unittest.TestCase):
         print("Elapsed time for calc_pca is %f" %(pca_elapsed_time))
         self.assertGreater(pca_elapsed_time, sparse_pca_elapsed_time)
 
+    def test_calc_k_mean_sparse(self):
+        n_samples = 1000
+        n_features = 30
+        n_components = 20
+        data = sparse_random_matrix(n_samples, n_features, density=0.01, random_state=42)
+        actual_output = calc_k_mean(data, n_clusters=n_components, sparse=True)
+        self.assertEqual(actual_output[0].shape, (n_samples,))
+        self.assertEqual(actual_output[1].shape, (n_components, n_features))
+        print(actual_output[1])
+
+    def test_calc_k_mean(self):
+        n_samples = 7
+        n_features = 2
+        n_components = 2
+        data = np.array([[0,1],[1,1],[1,1],[1,1],[1,1],[0,0],[0,0]])
+        actual_output = calc_k_mean(data, n_clusters=n_components)
+        self.assertEqual(actual_output[0].shape, (n_samples,))
+        self.assertEqual(actual_output[1].shape, (n_components, n_features))
+        print(actual_output[1])
+
+
+
     def test_cluster_images(self):
         input_dir='/home/xor/PycharmProjects/PixivUtil2/pixiv_downloaded/Rella (163536)'
         db_dir="sanity_check_db.pkl"

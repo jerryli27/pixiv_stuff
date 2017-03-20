@@ -29,7 +29,7 @@ APPROXIMATE_NUMBER_OF_TOTAL_PARAMETERS = 98218176
 
 SKETCH_VAR_SCOPE_PREFIX = "sketch_"
 
-Model = collections.namedtuple("Model", "loss, outputs, train, accuracy")
+Model = collections.namedtuple("Model", "loss, outputs, train, accuracy, precision, recall")
 
 
 def conv(batch_input, out_channels, stride, shift=4, pad = 1, trainable=True):
@@ -295,10 +295,19 @@ def create_model(inputs, targets, config):
         targets_bool = tf.greater_equal(targets, cutoff)
         correct_pred = tf.equal(predictions, targets_bool)
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        num_positive = tf.reduce_sum(tf.cast(targets_bool, tf.float32))
+        true_positive = tf.reduce_sum(tf.cast(tf.logical_and(targets_bool, correct_pred), tf.float32))
+        # true_negative = tf.reduce_sum(tf.cast(tf.logical_and(tf.logical_not(targets_bool), correct_pred), tf.float32))
+        false_positive =tf.reduce_sum(tf.cast(tf.logical_and(tf.logical_not(targets_bool), tf.logical_not(correct_pred)), tf.float32))
+        false_negative = num_positive - true_positive
+        precision = true_positive / (true_positive + false_positive + 0.0000001)
+        recall = true_positive / (true_positive + false_negative + 0.0000001)
+
 
 
     with tf.name_scope("discriminator_train"):
         discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
+        non_fc_tvars = [var for var in discrim_tvars if "fc_" not in var.name]
         # discrim_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
         # WGAN does not use momentum based optimizer
         discrim_optim = tf.train.RMSPropOptimizer(config.lr)
@@ -306,15 +315,17 @@ def create_model(inputs, targets, config):
 
         # WGAN adds a clip and train discriminator 5 times
         discrim_min = discrim_optim.minimize(loss, var_list=discrim_tvars)
-        discrim_clips = [var.assign(tf.clip_by_value(var, -CLIP_VALUE, CLIP_VALUE)) for var in discrim_tvars]
-        # No difference between control dependencies and group.
-        # with tf.control_dependencies([discrim_min] + discrim_clips):
-        #     discrim_train = tf.no_op("discrim_train")
-        with tf.control_dependencies([discrim_min]):
-            discrim_train = tf.group(*discrim_clips)
+        # Only clip the non-fully connected layer variables.
+        # discrim_clips = [var.assign(tf.clip_by_value(var, -CLIP_VALUE, CLIP_VALUE)) for var in non_fc_tvars]
+        # # No difference between control dependencies and group.
+        # # with tf.control_dependencies([discrim_min] + discrim_clips):
+        # #     discrim_train = tf.no_op("discrim_train")
+        # with tf.control_dependencies([discrim_min]):
+        #     discrim_train = tf.group(*discrim_clips)
+        discrim_train = discrim_min
 
     ema = tf.train.ExponentialMovingAverage(decay=0.99)
-    update_losses = ema.apply([loss,accuracy,])
+    update_losses = ema.apply([loss,accuracy,precision, recall])
 
     global_step = tf.contrib.framework.get_or_create_global_step()
     incr_global_step = tf.assign(global_step, global_step+1)
@@ -323,5 +334,7 @@ def create_model(inputs, targets, config):
         loss=ema.average(loss),
         outputs=predict,
         train=tf.group(update_losses, incr_global_step, discrim_train),
-        accuracy= ema.average(accuracy) # If this does not work, take out the ema.
+        accuracy= ema.average(accuracy), # If this does not work, take out the ema.
+        precision= ema.average(precision),
+        recall= ema.average(recall),
     )

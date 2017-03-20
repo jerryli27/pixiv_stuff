@@ -103,6 +103,8 @@ def main(a):
 
     tf.summary.scalar("loss", model.loss)
     tf.summary.scalar("accuracy", model.accuracy)
+    tf.summary.scalar("precision", model.precision)
+    tf.summary.scalar("recall", model.recall)
 
     with tf.name_scope("parameter_count"):
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
@@ -165,6 +167,8 @@ def main(a):
                 if should(a.progress_freq):
                     fetches["loss"] = model.loss
                     fetches["accuracy"] = model.accuracy
+                    fetches["precision"] = model.precision
+                    fetches["recall"] = model.recall
 
                 if should(a.summary_freq):
                     fetches["summary"] = sv.summary_op
@@ -191,6 +195,8 @@ def main(a):
                     print("progress  epoch %d  step %d  image/sec %0.1f" % (global_step // examples.steps_per_epoch, global_step % examples.steps_per_epoch, global_step * a.batch_size / (time.time() - start_time)))
                     print("loss", results["loss"])
                     print("accuracy", results["accuracy"])
+                    print("precision", results["precision"])
+                    print("recall", results["recall"])
 
                 if should(a.save_freq):
                     print("saving model")
@@ -212,6 +218,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--seed", type=int)
     parser.add_argument("--num_tags", type=int, default=1000)
+    parser.add_argument("--max_num_input", type=int, default=40000)
     parser.add_argument("--checkpoint", default=None,
                         help="directory with checkpoint to resume training from or use for testing")
 
@@ -252,7 +259,10 @@ python train_vgg19.py --mode train --output_dir sanity_check_train --model=discr
 python train_vgg19.py --mode train --output_dir sanity_check_train --max_epochs 20 --input_dir /mnt/tf_drive/home/ubuntu/datasets/UECFOOD256_sanity_check/ --display_freq=5000
 python train_vgg19.py --mode test --output_dir sanity_check_test --input_dir /mnt/tf_drive/home/ubuntu/datasets/UECFOOD256_sanity_check/ --checkpoint sanity_check_train
 python train_vgg19.py --mode train --output_dir UECFOOD256_train_iter_cont --max_epochs 50 --input_dir /mnt/tf_drive/home/ubuntu/datasets/UECFOOD256/ --display_freq=5000 --checkpoint=UECFOOD256_train_iter --trainable_layer=conv1_1
-python train_vgg19.py --mode train --output_dir sanity_check_train --model=discrim_net --max_epochs 20000 --input_dir /mnt/data_drive/home/ubuntu/pixiv_new_sanity_check_128 --display_freq=5000 --batch_size=50 --crop_size=128 --scale_size=143 --lr=0.000001
+python train_vgg19.py --mode train --output_dir sanity_check_train --model=discrim_net --max_epochs 20000 --input_dir /mnt/data_drive/home/ubuntu/pixiv_new_sanity_check_tiny_128 --display_freq=5000 --batch_size=2 --crop_size=128 --scale_size=143 --lr=0.001
 python train_vgg19.py --mode train --output_dir pixiv_downloaded_sketches_lnet_128_train --model=discrim_net --max_epochs 40 --input_dir /mnt/data_drive/home/ubuntu/pixiv_downloaded_sketches_lnet_128/color --display_freq=5000 --batch_size=50 --crop_size=128 --scale_size=143 --lr=0.000001 --gpu_percentage=0.25
+
+python train_vgg19.py --mode train --output_dir sanity_check_train_vgg --model=vgg19 --max_epochs 20000 --input_dir /mnt/data_drive/home/ubuntu/pixiv_new_sanity_check_tiny_128 --display_freq=5000 --batch_size=2 --crop_size=128 --scale_size=143 --lr=0.001 --gpu_percentage=0.25
+python train_vgg19.py --mode train --output_dir pixiv_new_128_w_face_reshape_train_vgg --model=vgg19 --max_epochs 40 --input_dir /mnt/data_drive/home/ubuntu/pixiv_new_128_w_face_reshape/color --display_freq=5000 --batch_size=4 --crop_size=128 --scale_size=143 --lr=0.001 --gpu_percentage=0.45 --max_num_input=40000
 
 """

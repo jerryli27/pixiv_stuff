@@ -17,6 +17,7 @@ import traceback
 import dateparser
 import numpy as np
 from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.cluster import KMeans
 import scipy.sparse
 from collections import Counter
 
@@ -327,6 +328,12 @@ def load_examples(config):
     if len(input_paths) == 0:
         raise Exception("input_dir contains no image files")
 
+    if len(input_paths) >= config.max_num_input:
+        print("Cutting the number of input paths from %d to %d to avoid "
+              "'Cannot allocate buffer larger than kint32max for StringOutputStream.' error"
+              %(len(input_paths), config.max_num_input))
+        input_paths = input_paths[:config.max_num_input]
+
     # if the image names are numbers, sort by the value rather than asciibetically
     # having sorted inputs means that the outputs are sorted in test mode
     if all(get_name(path).isdigit() for path in input_paths):
@@ -342,7 +349,7 @@ def load_examples(config):
         # path_queue = tf.train.string_input_producer(input_paths, shuffle=config.mode == "train")
         # The slice input producer can produce as many queus as the user wants.
         # labels = tf.constant(np.array(labels, dtype=np.bool))
-        labels = tf.constant(labels)
+        labels = tf.constant(labels, dtype=tf.bool)
         input_queue = tf.train.slice_input_producer([input_paths, labels], shuffle=config.mode == "train")
         path_queue = tf.string_join([config.input_dir, input_queue[0]])
         label_queue = tf.to_float(input_queue[1])
@@ -497,6 +504,30 @@ def calc_sparse_pca(data, n_components = 20):
     # Return shape: (n_samples), (n_components, n_features)
     return np.argmax(data_pca_components, axis=1), pca.components_
 
+def calc_k_mean(data, n_clusters = 20, sparse = False):
+
+    if len(data.shape) != 2:
+        raise AssertionError("The calc_pca function is assuming data is in numpy array format with shape "
+                             "(n_samples, n_features). Now it is %s" %(str(data.shape)))
+    if sparse:
+        data_to_be_clustered = scipy.sparse.csr_matrix(data)
+    else:
+        data_to_be_clustered = data
+    kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(data_to_be_clustered)
+    cluster_label_count = np.zeros((n_clusters, data.shape[1]))
+    cluster_num_instance_count = np.zeros((n_clusters,))
+    for data_i in range(data.shape[0]):
+        cluster_label_count[kmeans.labels_[data_i]] += data[data_i]
+        cluster_num_instance_count[kmeans.labels_[data_i]] += 1
+
+    # Now divide by the number of instances for each cluster.
+    for cluster_i in range(n_clusters):
+        if cluster_num_instance_count[cluster_i] != 0:
+            cluster_label_count[cluster_i] /= float(cluster_num_instance_count[cluster_i])
+
+    return kmeans.labels_, cluster_label_count
+
+
 def cluster_images(input_dir, db_dir, output_dir, tag_max_count, num_clusters):
     if not os.path.exists(input_dir):
         raise Exception("input_dir does not exist")
@@ -513,7 +544,9 @@ def cluster_images(input_dir, db_dir, output_dir, tag_max_count, num_clusters):
     input_paths = get_all_image_paths_in_dir(input_dir)
     input_paths = get_image_paths_in_database(database,input_paths)
     image_labels , tag2index, index2tag = create_labels(database, input_paths , most_common_count=tag_max_count)
-    image_clusters, components_features = calc_sparse_pca(image_labels, n_components = num_clusters)
+    # PCA is NOT a clustering algorithm!
+    # image_clusters, components_features = calc_sparse_pca(image_labels, n_components = num_clusters)
+    image_clusters, components_features = calc_k_mean(image_labels, n_clusters = num_clusters, sparse=True)
     assert image_clusters.shape[0] == len(input_paths)
 
     # Print the component features
@@ -557,4 +590,22 @@ def print_common_labels(db_dir, tag_max_count):
     for tag_name, tag_count in sorted_tags_count:
         print(tag_name + " appeared " + str(tag_count) + " times.")
 
+def print_tags_in_database(db_dir, num_images_to_print = 100):
+    if not os.path.isfile(db_dir):
+        raise AssertionError("Database does not exist.")
+    database = load_pickle(db_dir)
+    num_images_printed = 0
+    image_id = -1
+    try:
+        for image_id, image_info in database.iteritems():
+            image_tags = image_info.tags
+            print("Image id %d has tags: %s" %(image_id, ", ".join(image_tags)))
+            num_images_printed += 1
+            if num_images_printed == num_images_to_print:
+                break
 
+    except Exception as exc:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        traceback.print_exception(exc_type, exc_value, exc_traceback)
+        print("Exception %s occured during print_tags_in_database for image id %d" % (str(exc), image_id))
+    return

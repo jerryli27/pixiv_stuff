@@ -15,6 +15,7 @@ import re
 import sys
 import traceback
 import dateparser
+import shutil
 import numpy as np
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.cluster import KMeans
@@ -609,3 +610,25 @@ def print_tags_in_database(db_dir, num_images_to_print = 100):
         traceback.print_exception(exc_type, exc_value, exc_traceback)
         print("Exception %s occured during print_tags_in_database for image id %d" % (str(exc), image_id))
     return
+
+def create_cluster_sample(cluster_dir,cluster_num,num_sample_per_cluster = 40):
+
+    if not os.path.exists(cluster_dir):
+        raise AssertionError("Cluster directory does not exist.")
+    for i in range(cluster_num):
+        cluster_txt_dir = os.path.join(cluster_dir, "cluster_%d.txt" %(i))
+        if not os.path.isfile(cluster_txt_dir):
+            raise AssertionError("Cluster text %s does not exist." %(cluster_txt_dir))
+        cluster_sample_dir = os.path.join(cluster_dir, "cluster_sample_%d" %(i))
+        if not os.path.exists(cluster_sample_dir):
+            os.mkdir(cluster_sample_dir)
+        with open(cluster_txt_dir, 'r') as f:
+            for image_i in range(num_sample_per_cluster):
+                line = f.readline()
+                if line == None:
+                    break
+                line = line.strip()
+                if line == "":
+                    break
+                file_basename = os.path.basename(line)
+                shutil.copy(line,os.path.join(cluster_sample_dir,file_basename))

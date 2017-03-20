@@ -16,6 +16,6 @@ if __name__ == "__main__":
 
 """
 python run_clustering.py --input_dir=/mnt/pixiv_drive/home/ubuntu/PycharmProjects/PixivUtil2/pixiv_downloaded/
-# 25000 is using up 64% of the 64 gig memory
+# 25000 is using up 52% of the 64 gig memory
 python run_clustering.py --input_dir=/mnt/pixiv_drive/home/ubuntu/PycharmProjects/PixivUtil2/pixiv_downloaded/ --tag_max_count=25000 --num_clusters=100 --output_dir=pixiv_1T_clustered_25000_tags_100_clusters_k_means
 """
